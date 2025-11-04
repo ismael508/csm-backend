@@ -1,0 +1,59 @@
+POST http://localhost:3001/api/users
+Content-Type: application/json
+
+{
+  "username": "ismael",
+  "email": "ismael@example.com",
+  "password": "ismael123"
+}
+
+###
+
+POST http://localhost:3001/api/reviews
+Content-Type: application/json
+
+{
+  "userId": "687185032337c19c1eb676f3",
+  "content": "game was mid but surprisingly even i gooned to it",
+  "rating": 4
+}
+
+###
+
+POST http://localhost:3001/api/patchlog
+Content-Type: application/json
+
+{
+  "currentVersion": "1.0.0"
+}
+
+###
+
+GET http://localhost:3001/api/reviews
+
+###
+
+PATCH http://localhost:3001/api/reviews/update
+Content-Type: application/json
+
+{
+  "reviewId": "687195a9b23f40d4f0954482",
+  "updates": {
+    "likes": 1
+  }
+}
+
+###
+
+POST http://localhost:3001/api/release-note
+Content-Type: application/json
+
+{
+  "version": [1, 0, 2],
+  "text": "• Issue where people could not jump sometimes in game has been resolved.",
+  "passKey": "yug0er98yi34j09frhuf08u3bdfdpoklqs"
+}
+
+###
+
+GET http://localhost:3001/api/release-note/latest
