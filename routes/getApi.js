@@ -1,0 +1,132 @@
+const express = require('express');
+const Review = require('../models/ReviewModel');
+const PatchLog = require('../models/PatchLogModel');
+const ReleaseNote = require('../models/ReleaseNoteModel');
+const { verifyToken, generateAccessToken } = require('../utils');
+const RefreshToken = require('../models/RefreshTokenModel');
+
+const router = express.Router();
+
+const { compareVersions } = require('../utils')
+
+router.get('/verify-tokens', async (req, res) => {
+    const refreshToken = req.cookies.refreshToken;
+
+    if (!refreshToken) return res.status(403).json({ "message": "Unauthorised!" });
+
+    try {
+        const data = await RefreshToken.findOne({ refreshToken });
+        if (!data) return res.status(403).json({ "message": "Unauthorised!" });
+
+        let user;
+        try {
+            user = await verifyToken(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+        } catch (err) {
+            if (err.name === 'TokenExpiredError') {
+                await RefreshToken.deleteOne({ refreshToken });
+            }
+            return res.status(403).json({ "message": "Unauthorised!" });
+        }
+
+        const userEmail = user.email;
+
+        const accessToken = req.cookies.accessToken;
+        if (!accessToken){
+            const newAccessToken = generateAccessToken({
+                email: userEmail
+            });
+            res.cookie('accessToken', newAccessToken, {
+                maxAge: 5 * 60 * 1000,
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production'
+            });
+        }
+
+        res.json({ "message": "Tokens verified successfully!" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ "message": "Internal Server Error" });
+    }
+});
+
+router.get('/reviews', async (req, res) => {
+    try {
+        const reviews = await Review.find().populate('user', 'username pfp');
+        res.json(reviews)
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ "message": "Internal server error!" });
+    }
+})
+
+router.get('/patchlog/latest', async (req, res) => {
+    try {
+        const all = await PatchLog.find(); // get all patch logs
+        if (all.length === 0) return res.json(null); // return null if none
+
+        all.sort((a, b) => compareVersions(a.currentVersion, b.currentVersion)); // sort latest first
+        return res.json(all[0]); // first one is now the latest
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ message: "Internal server error!" })
+    }
+})
+
+router.get('/release-note/latest', async (req, res) => {
+    try {
+        const all = await ReleaseNote.find(); // get all release notes
+        if (all.length === 0) return res.json(null); // return null if none
+
+        all.sort((a, b) => compareVersions(a.version, b.version)); // sort latest first
+        console.log(all[0]);
+        return res.json(all[0]); // first one is now the latest
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ message: "Internal server error!" })
+    }
+})
+
+router.get('/patchlog/:mode/:version', async (req, res) => {
+    try {
+        let patchLog;
+        const arr = req.params.version.split('.').map(Number);
+        if (req.params.mode === 'currentVersion'){
+            patchLog = await PatchLog.findOne({ currentVersion: arr });
+        } else {
+            patchLog = await PatchLog.findOne({ lastVersion: arr });
+        }
+        if (!patchLog){
+            return res.status(404).json({ message: "Couldn't find patchlog." })
+        }
+        res.json(patchLog)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ message: 'Internal server error!' })
+    }
+})
+
+router.get('/release-note/:version', async (req, res) => {
+    try {
+        const arr = req.params.version.split('.').map(Number);
+        const releaseNote = await ReleaseNote.findOne({ version: arr });
+        if (!releaseNote) {
+            return res.status(404).json({ message: "Couldn't find release note." });
+        }
+        res.json(releaseNote);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Internal server error!' });
+    }
+})
+
+router.get('/release-notes', async (req, res) => {
+    try {
+        const releaseNotes = await ReleaseNote.find().sort({ 'version.0': 1, 'version.1': 1, 'version.2': 1 });
+        res.json(releaseNotes);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Internal server error!' });
+    }
+})
+
+module.exports = router
