@@ -1,4 +1,4 @@
-POST http://localhost:3001/api/users
+POST https://csm-backend-h2ht.onrender.com/api/users
 Content-Type: application/json
 
 {
@@ -9,18 +9,18 @@ Content-Type: application/json
 
 ###
 
-POST http://localhost:3001/api/reviews
+POST https://csm-backend-h2ht.onrender.com/api/reviews
 Content-Type: application/json
 
 {
-  "userId": "687185032337c19c1eb676f3",
-  "content": "game was mid but surprisingly even i gooned to it",
-  "rating": 4
+  "userId": "688bed9d5a88d0a7360dc52b",
+  "content": "Game was pretty mid, quite a few bugs but overall enjoyable.",
+  "rating": 3
 }
 
 ###
 
-POST http://localhost:3001/api/patchlog
+POST https://csm-backend-h2ht.onrender.com/api/patchlog
 Content-Type: application/json
 
 {
@@ -29,11 +29,11 @@ Content-Type: application/json
 
 ###
 
-GET http://localhost:3001/api/reviews
+GET https://csm-backend-h2ht.onrender.com/api/reviews
 
 ###
 
-PATCH http://localhost:3001/api/reviews/update
+PATCH https://csm-backend-h2ht.onrender.com/api/reviews/update
 Content-Type: application/json
 
 {
@@ -45,7 +45,7 @@ Content-Type: application/json
 
 ###
 
-POST http://localhost:3001/api/release-note
+POST https://csm-backend-h2ht.onrender.com/api/release-note
 Content-Type: application/json
 
 {
@@ -56,4 +56,4 @@ Content-Type: application/json
 
 ###
 
-GET http://localhost:3001/api/release-note/latest
+GET https://csm-backend-h2ht.onrender.com/api/release-note/latest
