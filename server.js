@@ -16,8 +16,11 @@ const deleteApi = require('./routes/deleteApi')
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
-    origin: 'http://localhost:3000', // or your frontend port
-    credentials: true // ALLOW COOKIES
+    // Update this to include both your development and production URLs
+    origin: ['http://localhost:3000', 'https://your-production-domain.com'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 mongoose.connect(process.env.DB_URI, {

@@ -98,13 +98,15 @@ router.post('/login', async (req, res) => {
             maxAge: 72 * 60 * 60 * 1000,
             httpOnly: true,
             secure: true,
-            sameSite: 'none'
+            sameSite: 'none',
+            path: '/'
         })
         res.cookie('accessToken', accessToken, {
             maxAge: 5 * 60 * 1000,
             httpOnly: true,
             secure: true,
-            sameSite: 'none'
+            sameSite: 'none',
+            path: '/'
         });
         res.json({ "message": "Logged in successfully!" })
     } catch (err) {
