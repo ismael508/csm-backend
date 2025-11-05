@@ -6,7 +6,7 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = 3002;
 
 const postApi = require('./routes/postApi')
 const getApi = require('./routes/getApi')
