@@ -2,12 +2,10 @@ const express = require('express');
 const Review = require('../models/ReviewModel');
 const PatchLog = require('../models/PatchLogModel');
 const ReleaseNote = require('../models/ReleaseNoteModel');
-const { verifyToken, generateAccessToken } = require('../utils');
+const { verifyToken, generateAccessToken, compareVersions } = require('../utils');
 const RefreshToken = require('../models/RefreshTokenModel');
 
 const router = express.Router();
-
-const { compareVersions } = require('../utils')
 
 router.get('/verify-tokens', async (req, res) => {
     const refreshToken = req.cookies.refreshToken;
