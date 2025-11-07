@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const RefreshToken = require('./models/RefreshTokenModel');
+const crypto = require('crypto')
 
 function parseVersion(version) {
   if (Array.isArray(version)) return version; // If already an array, return as is
@@ -25,9 +25,6 @@ const verifyToken = (token, secret) => {
     });
 };
 
-
-const base64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
 function generateAccessToken(user){
     return jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' })
 }
@@ -36,34 +33,23 @@ function generateRefreshToken(user){
     return jwt.sign(user, process.env.REFRESH_TOKEN_SECRET, { expiresIn: '7d' })
 }
 
-function numberToBase64(num) {
-    let base64Str = '';
+function generateCode() {
+  // 5 bytes = 40 bits → enough for 6 Base64 chars (since 6 * 6 = 36 bits)
+  const bytes = crypto.randomBytes(5);
   
-    if (num === 0) {
-      return base64Chars[0]; // Handle the case for zero
-    }
+  // Convert to Base64
+  let code = bytes.toString('base64');
   
-    while (num > 0) {
-      const remainder = num % 64; // Get the remainder
-      base64Str = base64Chars[remainder] + base64Str; // Prepend the corresponding Base64 character
-      num = Math.floor(num / 64); // Divide the number by 64
-    }
-  
-    return base64Str;
-}
+  // Strip padding (=) and slice first 6 chars
+  code = code.replace(/=/g, '').slice(0, 6);
 
-function generateRandomNumber(min, max) {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
+  return code;
 }
-
-function generatePass(){
-    return `${numberToBase64(generateRandomNumber(262144, 16777215))}${numberToBase64(new Date().getTime() + 5 * 1000 * 60)}`;
-};
 
 module.exports = {
     compareVersions,
     generateAccessToken,
     generateRefreshToken,
-    generatePass,
+    generateCode,
     verifyToken
 }

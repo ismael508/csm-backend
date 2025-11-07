@@ -10,7 +10,7 @@ const PatchLog = require('../models/PatchLogModel');
 const RefreshToken = require('../models/RefreshTokenModel');
 const ReleaseNote = require('../models/ReleaseNoteModel');
 
-const { generateAccessToken, generateRefreshToken, verifyToken } = require('../utils');
+const { generateAccessToken, generateRefreshToken, generateCode } = require('../utils');
 
 router.post('/users', async (req, res) => {
     const { username, email, password } = req.body;
@@ -67,6 +67,27 @@ router.post('/users', async (req, res) => {
         res.status(500).json({ "message": "Internal server error!" });
     };
 });
+
+router.post('/send-code', async (req, res) => {
+    const { email } = req.body;
+
+    // Logic to generate and send code to the provided email address
+
+    const code = generateCode();
+
+    const newCode = new Code({
+        email,
+        code
+    });
+
+    try {
+        await newCode.save();
+        res.status(201).json({ "message": "Code sent successfully!", "code": code });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ "message": "Internal server error!" });
+    }
+})
 
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
