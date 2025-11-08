@@ -73,8 +73,6 @@ router.post('/users', async (req, res) => {
 router.post('/send-code', async (req, res) => {
     const { email } = req.body;
 
-    // Logic to generate and send code to the provided email address
-
     const code = generateCode();
 
     const newCode = new Code({
@@ -87,26 +85,81 @@ router.post('/send-code', async (req, res) => {
         auth: {
             user: process.env.EMAIL_AUTH,
             pass: process.env.PASS
-        }
+        },
+        // Add timeout and connection settings
+        tls: {
+            rejectUnauthorized: true,
+            minVersion: 'TLSv1.2'
+        },
+        pool: true, // Use pooled connections
+        maxConnections: 3, // Limit concurrent connections
+        maxMessages: 100, // Limit messages per connection
+        rateDeltaMessages: 10, // Space out sending
+        rateLimit: 5, // Messages per second limit
+        socketTimeout: 30000, // 30 sec socket timeout
+        connectionTimeout: 30000 // 30 sec connection timeout
     });
 
+    // Verify connection configuration
+    try {
+        await transporter.verify();
+    } catch (err) {
+        console.error('SMTP Configuration Error:', err);
+        return res.status(500).json({ 
+            message: "Email service configuration error",
+            error: err.message
+        });
+    }
+
     let mailOptions = {
-        from: process.env.EMAIL_AUTH,
+        from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`, // Add proper From header
         to: email,
         subject: 'Your Verification Code',
         html: `
             <p>Your verification code for Cosmic Ascension is <strong>${code}</strong>. Enter this code in the website.</p>
             <p>If this wasn't you, don't worry, just don't allow anyone access to this code.</p>
-        `
+        `,
+        // Add message priority and category
+        priority: 'high',
+        headers: {
+            'X-Priority': '1',
+            'X-MSMail-Priority': 'High',
+            'Category': 'verification'
+        }
     };
 
     try {
+        // Save code first
         await newCode.save();
-        await transporter.sendMail(mailOptions);
-        res.status(201).json({ "message": "Code sent successfully!", "code": code });
+        
+        // Send email with retry logic
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                await transporter.sendMail(mailOptions);
+                return res.status(201).json({ 
+                    message: "Code sent successfully!",
+                    code
+                });
+            } catch (err) {
+                retries--;
+                if (retries === 0) throw err;
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+            }
+        }
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ "message": "Internal server error!" });
+        console.error('Email Send Error:', err);
+        // Try to delete the saved code if email fails
+        try {
+            await Code.deleteOne({ email, code });
+        } catch (deleteErr) {
+            console.error('Failed to delete unused code:', deleteErr);
+        }
+        
+        res.status(500).json({ 
+            message: "Failed to send verification code",
+            error: err.message
+        });
     }
 })
 
