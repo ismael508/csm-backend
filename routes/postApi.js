@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
+const { google } = require('googleapis')
 
 const User = require('../models/UserModel');
 const PlayerData = require('../models/PlayerDataModel')
@@ -13,6 +14,13 @@ const RefreshToken = require('../models/RefreshTokenModel');
 const ReleaseNote = require('../models/ReleaseNoteModel');
 
 const { generateAccessToken, generateRefreshToken, generateCode } = require('../utils');
+
+const oAuth2Client = new google.auth.OAuth2(
+  process.env.CLIENT_ID,
+  process.env.CLIENT_SECRET,
+  "https://developers.google.com/oauthplayground"
+);
+oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
 
 router.post('/users', async (req, res) => {
     const { username, email, password } = req.body;
@@ -80,36 +88,22 @@ router.post('/send-code', async (req, res) => {
         code
     });
 
-    let transporter = nodemailer.createTransport({
+    const accessToken = await oAuth2Client.getAccessToken();
+
+    const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
-            user: process.env.EMAIL_AUTH,
-            pass: process.env.PASS
+            type: 'OAuth2',
+            user: process.env.EMAIL_ADDRESS,
+            clientId: process.env.CLIENT_ID,
+            clientSecret: process.env.CLIENT_SECRET,
+            refreshToken: process.env.REFRESH_TOKEN,
+            accessToken: accessToken.token
         },
-        // Add timeout and connection settings
         tls: {
-            rejectUnauthorized: true,
             minVersion: 'TLSv1.2'
-        },
-        pool: true, // Use pooled connections
-        maxConnections: 3, // Limit concurrent connections
-        maxMessages: 100, // Limit messages per connection
-        rateDeltaMessages: 10, // Space out sending
-        rateLimit: 5, // Messages per second limit
-        socketTimeout: 30000, // 30 sec socket timeout
-        connectionTimeout: 30000 // 30 sec connection timeout
+        }
     });
-
-    // Verify connection configuration
-    try {
-        await transporter.verify();
-    } catch (err) {
-        console.error('SMTP Configuration Error:', err);
-        return res.status(500).json({ 
-            message: "Email service configuration error",
-            error: err.message
-        });
-    }
 
     let mailOptions = {
         from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`, // Add proper From header
@@ -131,22 +125,12 @@ router.post('/send-code', async (req, res) => {
     try {
         // Save code first
         await newCode.save();
-        
-        // Send email with retry logic
-        let retries = 3;
-        while (retries > 0) {
-            try {
-                await transporter.sendMail(mailOptions);
-                return res.status(201).json({ 
-                    message: "Code sent successfully!",
-                    code
-                });
-            } catch (err) {
-                retries--;
-                if (retries === 0) throw err;
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
-            }
-        }
+        await transporter.sendMail(mailOptions);
+
+        return res.status(201).json({ 
+            message: "Code sent successfully!",
+            code
+        });
     } catch (err) {
         console.error('Email Send Error:', err);
         // Try to delete the saved code if email fails
