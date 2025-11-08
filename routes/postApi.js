@@ -82,54 +82,50 @@ router.post('/send-code', async (req, res) => {
     const { email } = req.body;
 
     const code = generateCode();
-
     const newCode = new Code({
         email,
         code
     });
 
-    const accessToken = await oAuth2Client.getAccessToken();
-
-    const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            type: 'OAuth2',
-            user: process.env.EMAIL_AUTH,
-            clientId: process.env.CLIENT_ID,
-            clientSecret: process.env.CLIENT_SECRET,
-            refreshToken: process.env.REFRESH_TOKEN,
-            accessToken: accessToken.token
-        },
-        tls: {
-            minVersion: 'TLSv1.2'
-        }
-    });
-
-    let mailOptions = {
-        from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`, // Add proper From header
-        to: email,
-        subject: 'Your Verification Code',
-        html: `
-            <p>Your verification code for Cosmic Ascension is <strong>${code}</strong>. Enter this code in the website.</p>
-            <p>If this wasn't you, don't worry, just don't allow anyone access to this code.</p>
-        `,
-        // Add message priority and category
-        priority: 'high',
-        headers: {
-            'X-Priority': '1',
-            'X-MSMail-Priority': 'High',
-            'Category': 'verification'
-        }
-    };
-
     try {
+        // Get new access token
+        const { token: accessToken } = await oAuth2Client.getAccessToken();
+
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                type: 'OAuth2',
+                user: process.env.EMAIL_AUTH,
+                clientId: process.env.CLIENT_ID,
+                clientSecret: process.env.CLIENT_SECRET,
+                refreshToken: process.env.REFRESH_TOKEN,
+                accessToken: accessToken
+            }
+        });
+
+        let mailOptions = {
+            from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
+            to: email,
+            subject: 'Your Verification Code',
+            html: `
+                <p>Your verification code for Cosmic Ascension is <strong>${code}</strong>. Enter this code in the website.</p>
+                <p>If this wasn't you, don't worry, just don't allow anyone access to this code.</p>
+            `,
+            priority: 'high',
+            headers: {
+                'X-Priority': '1',
+                'X-MSMail-Priority': 'High',
+                'Category': 'verification'
+            }
+        };
+
         // Save code first
         await newCode.save();
         await transporter.sendMail(mailOptions);
 
         return res.status(201).json({ 
             message: "Code sent successfully!",
-            code
+            code: process.env.NODE_ENV === 'development' ? code : undefined
         });
     } catch (err) {
         console.error('Email Send Error:', err);
@@ -142,7 +138,7 @@ router.post('/send-code', async (req, res) => {
         
         res.status(500).json({ 
             message: "Failed to send verification code",
-            error: err.message
+            error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
         });
     }
 })
