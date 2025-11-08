@@ -94,7 +94,7 @@ router.post('/send-code', async (req, res) => {
         service: 'gmail',
         auth: {
             type: 'OAuth2',
-            user: process.env.EMAIL_ADDRESS,
+            user: process.env.EMAIL_AUTH,
             clientId: process.env.CLIENT_ID,
             clientSecret: process.env.CLIENT_SECRET,
             refreshToken: process.env.REFRESH_TOKEN,
