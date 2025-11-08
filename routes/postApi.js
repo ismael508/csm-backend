@@ -4,6 +4,7 @@ const router = express.Router();
 const User = require('../models/UserModel');
 const PlayerData = require('../models/PlayerDataModel')
 const Review = require('../models/ReviewModel');
+const Code = require('../models/CodeModel');
 
 const bcrypt = require('bcrypt');
 const PatchLog = require('../models/PatchLogModel');
@@ -80,8 +81,27 @@ router.post('/send-code', async (req, res) => {
         code
     });
 
+    let transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: process.env.EMAIL_AUTH,
+            pass: process.env.PASS
+        }
+    });
+
+    let mailOptions = {
+        from: process.env.EMAIL_AUTH,
+        to: email,
+        subject: 'Your Verification Code',
+        html: `
+            <p>Your verification code for Cosmic Ascension is <strong>${code}</strong>. Enter this code in the website.</p>
+            <p>If this wasn't you, don't worry, just don't allow anyone access to this code.</p>
+        `
+    };
+
     try {
         await newCode.save();
+        await transporter.sendMail(mailOptions);
         res.status(201).json({ "message": "Code sent successfully!", "code": code });
     } catch (err) {
         console.error(err);
