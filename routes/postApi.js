@@ -15,45 +15,50 @@ const ReleaseNote = require('../models/ReleaseNoteModel');
 
 const { generateAccessToken, generateRefreshToken, generateCode } = require('../utils');
 
+// Update Gmail API scope
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+
+// Configure OAuth2 client
 const oAuth2Client = new google.auth.OAuth2(
     process.env.CLIENT_ID,
     process.env.CLIENT_SECRET,
     "https://developers.google.com/oauthplayground"
 );
 
-// Add error handling for token setup
+// Initialize OAuth2 client with error handling
 try {
-    if (!process.env.REFRESH_TOKEN) {
-        throw new Error('REFRESH_TOKEN is not set in environment variables');
+    if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
+        throw new Error('Missing OAuth2 client credentials');
     }
     
+    if (!process.env.REFRESH_TOKEN) {
+        throw new Error('Missing refresh token');
+    }
+
     oAuth2Client.setCredentials({ 
         refresh_token: process.env.REFRESH_TOKEN,
-        token_type: 'Bearer'
+        scope: GMAIL_SCOPE  // Use the new scope
     });
 
-    // Add token refresh listener
-    oAuth2Client.on('tokens', (tokens) => {
-        console.log('New tokens received:', tokens.access_token ? 'Access token refreshed' : 'No new access token');
-        if (tokens.refresh_token) {
-            console.log('New refresh token received - update your environment variables');
-        }
-    });
 } catch (err) {
     console.error('OAuth2 Setup Error:', err);
 }
 
-// Modify the send-code route
+// Modify send-code route with proper error handling
 router.post('/send-code', async (req, res) => {
     const { email } = req.body;
+    let generatedCode;
 
     try {
-        // Verify OAuth credentials
+        // Verify all required credentials
         if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET || !process.env.REFRESH_TOKEN || !process.env.EMAIL_AUTH) {
             throw new Error('Missing required OAuth2 credentials');
         }
 
-        // Force token refresh
+        // Generate verification code first
+        generatedCode = generateCode();
+        
+        // Get fresh access token
         const { token: accessToken } = await oAuth2Client.getAccessToken()
             .catch(error => {
                 console.error('Token Error:', {
@@ -61,15 +66,19 @@ router.post('/send-code', async (req, res) => {
                     response: error.response?.data,
                     code: error.code
                 });
-                throw new Error('Failed to get access token');
+                throw new Error(`OAuth2 authorization failed: ${error.message}`);
             });
 
-        const code = generateCode();
+        // Create verification code record
         const newCode = new Code({
             email,
-            code
+            code: generatedCode
         });
 
+        // Save code to database
+        await newCode.save();
+
+        // Configure email transport
         const transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: {
@@ -82,40 +91,38 @@ router.post('/send-code', async (req, res) => {
             }
         });
 
-        let mailOptions = {
+        // Verify transport configuration
+        await transporter.verify();
+
+        // Send email
+        await transporter.sendMail({
             from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
             to: email,
             subject: 'Your Verification Code',
             html: `
-                <p>Your verification code for Cosmic Ascension is <strong>${code}</strong>. Enter this code in the website.</p>
-                <p>If this wasn't you, don't worry, just don't allow anyone access to this code.</p>
-            `,
-            priority: 'high',
-            headers: {
-                'X-Priority': '1',
-                'X-MSMail-Priority': 'High',
-                'Category': 'verification'
-            }
-        };
-
-        // Save code first
-        await newCode.save();
-        await transporter.sendMail(mailOptions);
+                <p>Your verification code for Cosmic Ascension is <strong>${generatedCode}</strong>.</p>
+                <p>If this wasn't you, please ignore this email.</p>
+            `
+        });
 
         return res.status(201).json({ 
             message: "Code sent successfully!",
-            code: process.env.NODE_ENV === 'development' ? code : undefined
+            code: process.env.NODE_ENV === 'development' ? generatedCode : undefined
         });
+
     } catch (err) {
         console.error('Email Send Error:', err);
-        // Try to delete the saved code if email fails
-        try {
-            await Code.deleteOne({ email, code });
-        } catch (deleteErr) {
-            console.error('Failed to delete unused code:', deleteErr);
+        
+        // Clean up saved code if it exists
+        if (generatedCode) {
+            try {
+                await Code.deleteOne({ email, code: generatedCode });
+            } catch (deleteErr) {
+                console.error('Failed to delete unused code:', deleteErr);
+            }
         }
         
-        res.status(500).json({ 
+        return res.status(500).json({ 
             message: "Failed to send verification code",
             error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
         });
