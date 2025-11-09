@@ -25,26 +25,6 @@ const oAuth2Client = new google.auth.OAuth2(
     "https://developers.google.com/oauthplayground"
 );
 
-// Initialize OAuth2 client with error handling
-try {
-    if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET) {
-        throw new Error('Missing OAuth2 client credentials');
-    }
-    
-    if (!process.env.REFRESH_TOKEN) {
-        throw new Error('Missing refresh token');
-    }
-
-    oAuth2Client.setCredentials({ 
-        refresh_token: process.env.REFRESH_TOKEN,
-        scope: GMAIL_SCOPE  // Use the new scope
-    });
-
-} catch (err) {
-    console.error('OAuth2 Setup Error:', err);
-}
-
-// Modify send-code route with proper error handling
 router.post('/send-code', async (req, res) => {
     const { email } = req.body;
     let generatedCode;
@@ -52,80 +32,91 @@ router.post('/send-code', async (req, res) => {
     try {
         // Verify credentials
         if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET || !process.env.REFRESH_TOKEN || !process.env.EMAIL_AUTH) {
-            throw new Error('Missing required OAuth2 credentials');
+            throw new Error('Missing OAuth2 credentials');
         }
 
-        generatedCode = generateCode();
+        // Get fresh access token with timeout
+        const tokenPromise = oAuth2Client.getAccessToken();
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Token request timeout')), 10000)
+        );
         
-        // Get fresh access token
-        const { token: accessToken } = await oAuth2Client.getAccessToken();
+        const { token: accessToken } = await Promise.race([tokenPromise, timeoutPromise]);
 
-        // Configure email transport with timeout settings
+        // Generate and save code first
+        generatedCode = generateCode();
+        const newCode = new Code({ email, code: generatedCode });
+        await newCode.save();
+
+        // Configure transporter with better timeout settings
         const transporter = nodemailer.createTransport({
-            service: 'gmail',
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,
             auth: {
                 type: 'OAuth2',
                 user: process.env.EMAIL_AUTH,
                 clientId: process.env.CLIENT_ID,
                 clientSecret: process.env.CLIENT_SECRET,
                 refreshToken: process.env.REFRESH_TOKEN,
-                accessToken: accessToken
+                accessToken
             },
-            pool: true, // Use pooled connections
-            maxConnections: 1, // Limit concurrent connections
-            maxMessages: 3, // Limit messages per connection
-            rateDeltaMessages: 1, // Space out sending
-            rateLimit: 1, // Messages per second limit
             // Add timeout settings
+            tls: {
+                rejectUnauthorized: true,
+                minVersion: 'TLSv1.2'
+            },
             connectionTimeout: 10000, // 10 seconds
-            socketTimeout: 10000, // 10 seconds
-            greetingTimeout: 5000 // 5 seconds
+            socketTimeout: 10000,     // 10 seconds
+            greetingTimeout: 5000     // 5 seconds
         });
 
-        // Save code first before attempting email
-        const newCode = new Code({
-            email,
-            code: generatedCode
-        });
-        await newCode.save();
+        // Verify connection with timeout
+        await Promise.race([
+            transporter.verify(),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('SMTP verification timeout')), 10000)
+            )
+        ]);
 
-        // Try sending email with retries
+        // Send email with retry logic
         let attempts = 3;
+        let lastError = null;
+
         while (attempts > 0) {
             try {
-                await transporter.verify();
                 await transporter.sendMail({
                     from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
                     to: email,
                     subject: 'Your Verification Code',
-                    html: `
-                        <p>Your verification code for Cosmic Ascension is <strong>${generatedCode}</strong>.</p>
-                        <p>If this wasn't you, please ignore this email.</p>
-                    `,
+                    html: `<p>Your verification code is: <strong>${generatedCode}</strong></p>`,
                     priority: 'high'
                 });
-                break; // Success - exit retry loop
-            } catch (emailErr) {
+                
+                return res.status(201).json({ 
+                    message: "Code sent successfully!",
+                    code: process.env.NODE_ENV === 'development' ? generatedCode : undefined
+                });
+            } catch (err) {
+                lastError = err;
                 attempts--;
-                if (attempts === 0) throw emailErr;
-                // Wait 2 seconds before retry
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                if (attempts > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
             }
         }
 
-        return res.status(201).json({ 
-            message: "Code sent successfully!",
-            code: process.env.NODE_ENV === 'development' ? generatedCode : undefined
-        });
+        throw lastError || new Error('Failed to send email after retries');
 
     } catch (err) {
         console.error('Email Send Error:', {
-            error: err.message,
+            message: err.message,
             code: err.code,
-            command: err.command
+            command: err.command,
+            stack: err.stack
         });
-        
-        // Clean up saved code if it exists
+
+        // Cleanup saved code
         if (generatedCode) {
             try {
                 await Code.deleteOne({ email, code: generatedCode });
@@ -133,12 +124,10 @@ router.post('/send-code', async (req, res) => {
                 console.error('Failed to delete unused code:', deleteErr);
             }
         }
-        
-        return res.status(500).json({ 
+
+        return res.status(500).json({
             message: "Failed to send verification code",
-            error: process.env.NODE_ENV === 'development' 
-                ? `${err.message} (${err.code || 'unknown error code'})` 
-                : 'Internal server error'
+            error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
         });
     }
 })
