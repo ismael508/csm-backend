@@ -24,6 +24,7 @@ const oAuth2Client = new google.auth.OAuth2(
     process.env.CLIENT_SECRET,
     "https://developers.google.com/oauthplayground"
 );
+oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
 
 router.post('/send-code', async (req, res) => {
     const { email } = req.body;
