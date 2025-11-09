@@ -16,11 +16,111 @@ const ReleaseNote = require('../models/ReleaseNoteModel');
 const { generateAccessToken, generateRefreshToken, generateCode } = require('../utils');
 
 const oAuth2Client = new google.auth.OAuth2(
-  process.env.CLIENT_ID,
-  process.env.CLIENT_SECRET,
-  "https://developers.google.com/oauthplayground"
+    process.env.CLIENT_ID,
+    process.env.CLIENT_SECRET,
+    "https://developers.google.com/oauthplayground"
 );
-oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
+
+// Add error handling for token setup
+try {
+    if (!process.env.REFRESH_TOKEN) {
+        throw new Error('REFRESH_TOKEN is not set in environment variables');
+    }
+    
+    oAuth2Client.setCredentials({ 
+        refresh_token: process.env.REFRESH_TOKEN,
+        token_type: 'Bearer'
+    });
+
+    // Add token refresh listener
+    oAuth2Client.on('tokens', (tokens) => {
+        console.log('New tokens received:', tokens.access_token ? 'Access token refreshed' : 'No new access token');
+        if (tokens.refresh_token) {
+            console.log('New refresh token received - update your environment variables');
+        }
+    });
+} catch (err) {
+    console.error('OAuth2 Setup Error:', err);
+}
+
+// Modify the send-code route
+router.post('/send-code', async (req, res) => {
+    const { email } = req.body;
+
+    try {
+        // Verify OAuth credentials
+        if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET || !process.env.REFRESH_TOKEN || !process.env.EMAIL_AUTH) {
+            throw new Error('Missing required OAuth2 credentials');
+        }
+
+        // Force token refresh
+        const { token: accessToken } = await oAuth2Client.getAccessToken()
+            .catch(error => {
+                console.error('Token Error:', {
+                    message: error.message,
+                    response: error.response?.data,
+                    code: error.code
+                });
+                throw new Error('Failed to get access token');
+            });
+
+        const code = generateCode();
+        const newCode = new Code({
+            email,
+            code
+        });
+
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                type: 'OAuth2',
+                user: process.env.EMAIL_AUTH,
+                clientId: process.env.CLIENT_ID,
+                clientSecret: process.env.CLIENT_SECRET,
+                refreshToken: process.env.REFRESH_TOKEN,
+                accessToken: accessToken
+            }
+        });
+
+        let mailOptions = {
+            from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
+            to: email,
+            subject: 'Your Verification Code',
+            html: `
+                <p>Your verification code for Cosmic Ascension is <strong>${code}</strong>. Enter this code in the website.</p>
+                <p>If this wasn't you, don't worry, just don't allow anyone access to this code.</p>
+            `,
+            priority: 'high',
+            headers: {
+                'X-Priority': '1',
+                'X-MSMail-Priority': 'High',
+                'Category': 'verification'
+            }
+        };
+
+        // Save code first
+        await newCode.save();
+        await transporter.sendMail(mailOptions);
+
+        return res.status(201).json({ 
+            message: "Code sent successfully!",
+            code: process.env.NODE_ENV === 'development' ? code : undefined
+        });
+    } catch (err) {
+        console.error('Email Send Error:', err);
+        // Try to delete the saved code if email fails
+        try {
+            await Code.deleteOne({ email, code });
+        } catch (deleteErr) {
+            console.error('Failed to delete unused code:', deleteErr);
+        }
+        
+        res.status(500).json({ 
+            message: "Failed to send verification code",
+            error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+        });
+    }
+})
 
 router.post('/users', async (req, res) => {
     const { username, email, password } = req.body;
@@ -77,71 +177,6 @@ router.post('/users', async (req, res) => {
         res.status(500).json({ "message": "Internal server error!" });
     };
 });
-
-router.post('/send-code', async (req, res) => {
-    const { email } = req.body;
-
-    const code = generateCode();
-    const newCode = new Code({
-        email,
-        code
-    });
-
-    try {
-        // Get new access token
-        const { token: accessToken } = await oAuth2Client.getAccessToken();
-
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                type: 'OAuth2',
-                user: process.env.EMAIL_AUTH,
-                clientId: process.env.CLIENT_ID,
-                clientSecret: process.env.CLIENT_SECRET,
-                refreshToken: process.env.REFRESH_TOKEN,
-                accessToken: accessToken
-            }
-        });
-
-        let mailOptions = {
-            from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
-            to: email,
-            subject: 'Your Verification Code',
-            html: `
-                <p>Your verification code for Cosmic Ascension is <strong>${code}</strong>. Enter this code in the website.</p>
-                <p>If this wasn't you, don't worry, just don't allow anyone access to this code.</p>
-            `,
-            priority: 'high',
-            headers: {
-                'X-Priority': '1',
-                'X-MSMail-Priority': 'High',
-                'Category': 'verification'
-            }
-        };
-
-        // Save code first
-        await newCode.save();
-        await transporter.sendMail(mailOptions);
-
-        return res.status(201).json({ 
-            message: "Code sent successfully!",
-            code: process.env.NODE_ENV === 'development' ? code : undefined
-        });
-    } catch (err) {
-        console.error('Email Send Error:', err);
-        // Try to delete the saved code if email fails
-        try {
-            await Code.deleteOne({ email, code });
-        } catch (deleteErr) {
-            console.error('Failed to delete unused code:', deleteErr);
-        }
-        
-        res.status(500).json({ 
-            message: "Failed to send verification code",
-            error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
-        });
-    }
-})
 
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
