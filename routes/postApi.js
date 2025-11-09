@@ -50,35 +50,17 @@ router.post('/send-code', async (req, res) => {
     let generatedCode;
 
     try {
-        // Verify all required credentials
+        // Verify credentials
         if (!process.env.CLIENT_ID || !process.env.CLIENT_SECRET || !process.env.REFRESH_TOKEN || !process.env.EMAIL_AUTH) {
             throw new Error('Missing required OAuth2 credentials');
         }
 
-        // Generate verification code first
         generatedCode = generateCode();
         
         // Get fresh access token
-        const { token: accessToken } = await oAuth2Client.getAccessToken()
-            .catch(error => {
-                console.error('Token Error:', {
-                    message: error.message,
-                    response: error.response?.data,
-                    code: error.code
-                });
-                throw new Error(`OAuth2 authorization failed: ${error.message}`);
-            });
+        const { token: accessToken } = await oAuth2Client.getAccessToken();
 
-        // Create verification code record
-        const newCode = new Code({
-            email,
-            code: generatedCode
-        });
-
-        // Save code to database
-        await newCode.save();
-
-        // Configure email transport
+        // Configure email transport with timeout settings
         const transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: {
@@ -88,22 +70,48 @@ router.post('/send-code', async (req, res) => {
                 clientSecret: process.env.CLIENT_SECRET,
                 refreshToken: process.env.REFRESH_TOKEN,
                 accessToken: accessToken
+            },
+            pool: true, // Use pooled connections
+            maxConnections: 1, // Limit concurrent connections
+            maxMessages: 3, // Limit messages per connection
+            rateDeltaMessages: 1, // Space out sending
+            rateLimit: 1, // Messages per second limit
+            // Add timeout settings
+            connectionTimeout: 10000, // 10 seconds
+            socketTimeout: 10000, // 10 seconds
+            greetingTimeout: 5000 // 5 seconds
+        });
+
+        // Save code first before attempting email
+        const newCode = new Code({
+            email,
+            code: generatedCode
+        });
+        await newCode.save();
+
+        // Try sending email with retries
+        let attempts = 3;
+        while (attempts > 0) {
+            try {
+                await transporter.verify();
+                await transporter.sendMail({
+                    from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
+                    to: email,
+                    subject: 'Your Verification Code',
+                    html: `
+                        <p>Your verification code for Cosmic Ascension is <strong>${generatedCode}</strong>.</p>
+                        <p>If this wasn't you, please ignore this email.</p>
+                    `,
+                    priority: 'high'
+                });
+                break; // Success - exit retry loop
+            } catch (emailErr) {
+                attempts--;
+                if (attempts === 0) throw emailErr;
+                // Wait 2 seconds before retry
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
-        });
-
-        // Verify transport configuration
-        await transporter.verify();
-
-        // Send email
-        await transporter.sendMail({
-            from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
-            to: email,
-            subject: 'Your Verification Code',
-            html: `
-                <p>Your verification code for Cosmic Ascension is <strong>${generatedCode}</strong>.</p>
-                <p>If this wasn't you, please ignore this email.</p>
-            `
-        });
+        }
 
         return res.status(201).json({ 
             message: "Code sent successfully!",
@@ -111,7 +119,11 @@ router.post('/send-code', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Email Send Error:', err);
+        console.error('Email Send Error:', {
+            error: err.message,
+            code: err.code,
+            command: err.command
+        });
         
         // Clean up saved code if it exists
         if (generatedCode) {
@@ -124,7 +136,9 @@ router.post('/send-code', async (req, res) => {
         
         return res.status(500).json({ 
             message: "Failed to send verification code",
-            error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+            error: process.env.NODE_ENV === 'development' 
+                ? `${err.message} (${err.code || 'unknown error code'})` 
+                : 'Internal server error'
         });
     }
 })
