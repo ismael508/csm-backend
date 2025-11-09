@@ -37,85 +37,67 @@ router.post('/send-code', async (req, res) => {
             throw new Error('Missing OAuth2 credentials');
         }
 
-        // Get fresh access token with timeout
+        // Ensure OAuth client has refresh token
+        oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
+
+        // Get fresh access token with timeout and normalize result
         const tokenPromise = oAuth2Client.getAccessToken();
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Token request timeout')), 10000)
         );
-        
-        const { token: accessToken } = await Promise.race([tokenPromise, timeoutPromise]);
+        const tokenResult = await Promise.race([tokenPromise, timeoutPromise]);
+        const accessToken = tokenResult && (typeof tokenResult === 'object' ? tokenResult.token : tokenResult);
 
         // Generate and save code first
         generatedCode = generateCode();
         const newCode = new Code({ email, code: generatedCode });
         await newCode.save();
 
-        // Configure transporter with better timeout settings
-        const transporter = nodemailer.createTransport({
-            host: 'smtp.gmail.com',
-            port: 465,
-            secure: true,
-            auth: {
-                type: 'OAuth2',
-                user: process.env.EMAIL_AUTH,
-                clientId: process.env.CLIENT_ID,
-                clientSecret: process.env.CLIENT_SECRET,
-                refreshToken: process.env.REFRESH_TOKEN,
-                accessToken
-            },
-            // Add timeout settings
-            tls: {
-                rejectUnauthorized: true,
-                minVersion: 'TLSv1.2'
-            },
-            connectionTimeout: 10000, // 10 seconds
-            socketTimeout: 10000,     // 10 seconds
-            greetingTimeout: 5000     // 5 seconds
+        // Build RFC-5322 raw message and base64url encode it
+        const makeRawMessage = (from, to, subject, html) => {
+            const messageParts = [
+                `From: ${from}`,
+                `To: ${to}`,
+                `Subject: ${subject}`,
+                'MIME-Version: 1.0',
+                'Content-Type: text/html; charset=UTF-8',
+                '',
+                html
+            ];
+            const message = messageParts.join('\n');
+            return Buffer.from(message)
+                .toString('base64')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+        };
+
+        // Try sending with Gmail REST API (avoids SMTP blocking)
+        const gmailClient = google.gmail({ version: 'v1', auth: oAuth2Client });
+        const raw = makeRawMessage(
+            `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
+            email,
+            'Your Verification Code',
+            `<p>Your verification code is: <strong>${generatedCode}</strong></p>`
+        );
+
+        await gmailClient.users.messages.send({
+            userId: 'me',
+            requestBody: { raw }
         });
 
-        // Verify connection with timeout
-        await Promise.race([
-            transporter.verify(),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('SMTP verification timeout')), 10000)
-            )
-        ]);
-
-        // Send email with retry logic
-        let attempts = 3;
-        let lastError = null;
-
-        while (attempts > 0) {
-            try {
-                await transporter.sendMail({
-                    from: `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
-                    to: email,
-                    subject: 'Your Verification Code',
-                    html: `<p>Your verification code is: <strong>${generatedCode}</strong></p>`,
-                    priority: 'high'
-                });
-                
-                return res.status(201).json({ 
-                    message: "Code sent successfully!",
-                    code: process.env.NODE_ENV === 'development' ? generatedCode : undefined
-                });
-            } catch (err) {
-                lastError = err;
-                attempts--;
-                if (attempts > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
-            }
-        }
-
-        throw lastError || new Error('Failed to send email after retries');
+        return res.status(201).json({
+            message: "Code sent successfully!",
+            code: process.env.NODE_ENV === 'development' ? generatedCode : undefined
+        });
 
     } catch (err) {
         console.error('Email Send Error:', {
             message: err.message,
             code: err.code,
             command: err.command,
-            stack: err.stack
+            stack: err.stack,
+            oauthResponse: err.response?.data
         });
 
         // Cleanup saved code
