@@ -34,22 +34,41 @@ function generateRefreshToken(user){
 }
 
 function generateCode() {
-  // 5 bytes = 40 bits → enough for 6 Base64 chars (since 6 * 6 = 36 bits)
-  const bytes = crypto.randomBytes(5);
+  const bytes = crypto.randomBytes(6);
   
   // Convert to Base64
   let code = bytes.toString('base64');
   
-  // Strip padding (=) and slice first 6 chars
-  code = code.replace(/=/g, '').slice(0, 6);
+  // Strip padding (=) and slice first 8 chars
+  code = code.replace(/=/g, '').slice(0, 8);
 
   return code;
 }
+
+// Build RFC-5322 raw message and base64url encode it
+const makeRawMessage = (from, to, subject, html) => {
+    const messageParts = [
+        `From: ${from}`,
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset=UTF-8',
+        '',
+        html
+    ];
+    const message = messageParts.join('\n');
+    return Buffer.from(message)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+};
 
 module.exports = {
     compareVersions,
     generateAccessToken,
     generateRefreshToken,
     generateCode,
-    verifyToken
+    verifyToken,
+    makeRawMessage
 }

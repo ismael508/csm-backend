@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const nodemailer = require('nodemailer');
 const { google } = require('googleapis')
 
 const User = require('../models/UserModel');
@@ -9,14 +8,12 @@ const Review = require('../models/ReviewModel');
 const Code = require('../models/CodeModel');
 
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const PatchLog = require('../models/PatchLogModel');
 const RefreshToken = require('../models/RefreshTokenModel');
 const ReleaseNote = require('../models/ReleaseNoteModel');
 
-const { generateAccessToken, generateRefreshToken, generateCode } = require('../utils');
-
-// Update Gmail API scope
-const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+const { generateAccessToken, generateRefreshToken, generateCode, makeRawMessage } = require('../utils');
 
 // Configure OAuth2 client
 const oAuth2Client = new google.auth.OAuth2(
@@ -29,7 +26,6 @@ oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
 router.post('/send-code', async (req, res) => {
     const { email } = req.body;
     let generatedCode;
-    console.log("REFRESH_TOKEN:", process.env.REFRESH_TOKEN);
 
     try {
         // Verify credentials
@@ -40,37 +36,11 @@ router.post('/send-code', async (req, res) => {
         // Ensure OAuth client has refresh token
         oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
 
-        // Get fresh access token with timeout and normalize result
-        const tokenPromise = oAuth2Client.getAccessToken();
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Token request timeout')), 10000)
-        );
-        const tokenResult = await Promise.race([tokenPromise, timeoutPromise]);
-        const accessToken = tokenResult && (typeof tokenResult === 'object' ? tokenResult.token : tokenResult);
-
         // Generate and save code first
         generatedCode = generateCode();
-        const newCode = new Code({ email, code: generatedCode });
+        const hashedCode = crypto.createHash('sha256').update(generatedCode).digest('hex');
+        const newCode = new Code({ email, code: hashedCode });
         await newCode.save();
-
-        // Build RFC-5322 raw message and base64url encode it
-        const makeRawMessage = (from, to, subject, html) => {
-            const messageParts = [
-                `From: ${from}`,
-                `To: ${to}`,
-                `Subject: ${subject}`,
-                'MIME-Version: 1.0',
-                'Content-Type: text/html; charset=UTF-8',
-                '',
-                html
-            ];
-            const message = messageParts.join('\n');
-            return Buffer.from(message)
-                .toString('base64')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/, '');
-        };
 
         // Try sending with Gmail REST API (avoids SMTP blocking)
         const gmailClient = google.gmail({ version: 'v1', auth: oAuth2Client });
@@ -78,7 +48,9 @@ router.post('/send-code', async (req, res) => {
             `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
             email,
             'Your Verification Code',
-            `<p>Your verification code is: <strong>${generatedCode}</strong></p>`
+            `<p>Your verification code for Cosmic Ascension is: <strong>${generatedCode}</strong>
+            If you did not request this code, don't worry. Just don't share it with anyone.
+            </p>`
         );
 
         await gmailClient.users.messages.send({
@@ -88,7 +60,6 @@ router.post('/send-code', async (req, res) => {
 
         return res.status(201).json({
             message: "Code sent successfully!",
-            code: process.env.NODE_ENV === 'development' ? generatedCode : undefined
         });
 
     } catch (err) {
@@ -113,6 +84,26 @@ router.post('/send-code', async (req, res) => {
             message: "Failed to send verification code",
             error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
         });
+    }
+})
+
+router.post('/verify-code', async (req, res) => {
+    const { email, code } = req.body;
+    const hashedCode = crypto.createHash('sha256').update(code).digest('hex');
+
+    try {
+        const existingCode = await Code.findOne({ email, code: hashedCode });
+
+        if (!existingCode) {
+            return res.status(400).json({ message: "Invalid or expired code!" });
+        }
+        // Code is valid, delete it to prevent reuse
+        await Code.deleteOne({ email, code: hashedCode });
+
+        res.json({ message: "Code verified successfully!" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Internal server error!" });
     }
 })
 
