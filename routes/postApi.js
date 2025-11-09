@@ -28,6 +28,7 @@ const oAuth2Client = new google.auth.OAuth2(
 router.post('/send-code', async (req, res) => {
     const { email } = req.body;
     let generatedCode;
+    console.log("REFRESH_TOKEN:", process.env.REFRESH_TOKEN);
 
     try {
         // Verify credentials
