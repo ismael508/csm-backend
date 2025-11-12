@@ -24,7 +24,11 @@ const oAuth2Client = new google.auth.OAuth2(
 oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
 
 router.post('/send-code', async (req, res) => {
-    const { email } = req.body;
+    const { email, type } = req.body;
+    const accExists = await User.findOne({ email });
+    if (!accExists) {
+        return res.status(400).json({ message: "No account found with that email!" });
+    }
     let generatedCode;
 
     try {
@@ -40,16 +44,28 @@ router.post('/send-code', async (req, res) => {
         generatedCode = generateCode();
         const hashedCode = crypto.createHash('sha256').update(generatedCode).digest('hex');
         const newCode = new Code({ email, code: hashedCode });
-        await newCode.save();
+        try {
+            // find if code exists
+            let existingCode = await Code.findOne({ email });
+            if (existingCode) {
+                await Code.deleteOne({ email });
+            }
 
+            await newCode.save();
+        } catch (dbErr) {
+            console.error('Database Error:', dbErr);
+            return res.status(500).json({ message: "Failed to save verification code" });
+        }
         // Try sending with Gmail REST API (avoids SMTP blocking)
         const gmailClient = google.gmail({ version: 'v1', auth: oAuth2Client });
         const raw = makeRawMessage(
             `"Cosmic Ascension" <${process.env.EMAIL_AUTH}>`,
             email,
             'Your Verification Code',
-            `<p>Your verification code for Cosmic Ascension is: <strong>${generatedCode}</strong>
+            type == 'rp' ? `<p>Your verification code for Cosmic Ascension is: <strong>${generatedCode}</strong>
             If you did not request this code, don't worry. Just don't share it with anyone.
+            </p>` : `<p>Welcome to Cosmic Ascension! Your verification code is: <strong>${generatedCode}</strong>
+            Please enter this code in the website to verify your email address.
             </p>`
         );
 
@@ -104,6 +120,16 @@ router.post('/verify-code', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: "Internal server error!" });
+    }
+})
+
+router.post('/users/query', async (req, res) => {
+    const { query } = req.body;
+    const exists = await User.findOne(query);
+    if (exists) {
+        return res.status(200).json({ exists: true });
+    } else {
+        return res.status(200).json({ exists: false });
     }
 })
 
@@ -211,23 +237,27 @@ router.post('/login', async (req, res) => {
 })
 
 router.post('/reviews', async (req, res) => {
-    const { userId, content, rating } = req.body;
+    const { userId, content, rating, passKey } = req.body;
 
-    const newReview = new Review({
-        user: userId,
-        content,
-        rating,
-        likes: 0,
-        dislikes: 0,
-        ownerReply: ''
-    });
+    if (passKey === process.env.SECRET_KEY){
+        const newReview = new Review({
+            user: userId,
+            content,
+            rating,
+            likes: 0,
+            dislikes: 0,
+            ownerReply: ''
+        });
 
-    try {
-        await newReview.save();
-        res.status(201).json(newReview);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ "message": "Internal server error!" });
+        try {
+            await newReview.save();
+            res.status(201).json(newReview);
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ "message": "Internal server error!" });
+        }
+    } else {
+        res.status(401).json({ message: "Unauthorised!" })
     }
 })
 

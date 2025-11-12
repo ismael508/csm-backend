@@ -4,6 +4,7 @@ const Schema = mongoose.Schema
 const codeSchema = new Schema({
     email: String,
     code: String,
+    resetToken: String,
     createdAt: { type: Date, expires: 600, default: Date.now }
 })
 
