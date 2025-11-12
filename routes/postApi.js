@@ -26,7 +26,7 @@ oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
 router.post('/send-code', async (req, res) => {
     const { email, type } = req.body;
     const accExists = await User.findOne({ email });
-    if (!accExists) {
+    if (!accExists && type == 'rp'){
         return res.status(400).json({ message: "No account found with that email!" });
     }
     let generatedCode;
