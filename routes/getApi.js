@@ -50,6 +50,13 @@ router.get('/verify-tokens', async (req, res) => {
 router.get('/reviews', async (req, res) => {
     try {
         const reviews = await Review.find().populate('user', 'username pfp');
+        for (let i = 0; i < reviews.length; i++){
+            if (!reviews[i].user){
+                await Review.deleteOne({ _id: reviews[i]._id });
+                reviews.splice(i, 1);
+                i--;
+            }
+        }
         res.json(reviews)
     } catch (err) {
         console.error(err);
