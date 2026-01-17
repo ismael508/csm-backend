@@ -40,7 +40,7 @@ router.get('/verify-tokens', async (req, res) => {
             });
         }
 
-        res.json({ "message": "Tokens verified successfully!" });
+        res.json({ "message": "Tokens verified successfully!", "id": data.userId });
     } catch (err) {
         console.error(err);
         res.status(500).json({ "message": "Internal Server Error" });
@@ -83,7 +83,6 @@ router.get('/release-note/latest', async (req, res) => {
         if (all.length === 0) return res.json(null); // return null if none
 
         all.sort((a, b) => compareVersions(a.version, b.version)); // sort latest first
-        console.log(all[0]);
         return res.json(all[0]); // first one is now the latest
     } catch (err) {
         console.error(err)
