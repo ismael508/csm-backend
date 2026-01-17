@@ -6,11 +6,11 @@ const userSchema = new Schema({
     username: String,
     password: String,
     pfp: {
-        type: Buffer,
-        default: null
+        url: { type: String, default: '' },
+        public_id: { type: String, default: '' }
     },
-    reviewsLiked: {
-        type: Object,
+    reviewsVoted: {
+        type: Array, // array of review IDs
         default: null
     }
 }, { timestamps: true })
