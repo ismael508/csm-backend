@@ -261,13 +261,21 @@ router.post('/reviews', async (req, res) => {
     }
 })
 router.post('/reviews/relate', async (req, res) => {
-    const { reviewId, passKey } = req.body;
+    const { reviewId, userId, passKey } = req.body;
     if (passKey === process.env.SECRET_KEY){
         try {
+            const user = await User.findById(userId);
+            if (user.reviewsVoted && user.reviewsVoted.includes(reviewId)) {
+                return res.status(409).json({ message: "You have already voted on this review!" });
+            }
             const updatedReview = await Review.findByIdAndUpdate(
                 reviewId,
                 { $inc: { relates: 1 } },
                 { new: true, runValidators: true }
+            );
+            await User.updateOne(
+                { _id: userId },
+                { $push: { reviewsVoted: reviewId } }
             );
             if (!updatedReview) {
                 return res.status(404).json({ message: "Invalid ID!" });
