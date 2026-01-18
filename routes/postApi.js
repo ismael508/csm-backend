@@ -260,6 +260,27 @@ router.post('/reviews', async (req, res) => {
         res.status(401).json({ message: "Unauthorised!" })
     }
 })
+router.post('/reviews/relate', async (req, res) => {
+    const { reviewId, passKey } = req.body;
+    if (passKey === process.env.SECRET_KEY){
+        try {
+            const updatedReview = await Review.findByIdAndUpdate(
+                reviewId,
+                { $inc: { relates: 1 } },
+                { new: true, runValidators: true }
+            );
+            if (!updatedReview) {
+                return res.status(404).json({ message: "Invalid ID!" });
+            }
+            res.status(200).json({ message: "Success" });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ "message": "Internal server error!" });
+        }
+    } else {
+        res.status(401).json({ message: "Unauthorised!" })
+    }
+})
 
 router.post('/patchlog', async (req, res) => {
     const { lastVersion, currentVersion, log, passKey } = req.body;
