@@ -5,8 +5,7 @@ const reviewSchema = new Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     content: String,
     rating: Number,
-    likes: Number,
-    dislikes: Number,
+    relates: Number,
     ownerReply: String
 }, { timestamps: true })
 
