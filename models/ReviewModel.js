@@ -5,7 +5,10 @@ const reviewSchema = new Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     content: String,
     rating: Number,
-    relates: Number,
+    relates: {
+        type: Number,
+        default: 0
+    },
     ownerReply: String
 }, { timestamps: true })
 
