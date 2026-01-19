@@ -57,7 +57,7 @@ router.get('/users/:userId', async (req, res) => {
             return res.status(404).json({ message: "User not found!" });
         }
         const playerData = await PlayerData.findOne({ username: user.username }).select('-__v -username -createdAt');
-        res.status(200).json({...user, ...playerData}); // _id is player data id
+        res.status(200).json({...user.toObject(), ...playerData.toObject()});
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: "Internal server error!" });
