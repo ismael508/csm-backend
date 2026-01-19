@@ -133,21 +133,6 @@ router.post('/users/query', async (req, res) => {
     }
 })
 
-router.post('/users/info', async (req, res) => {
-    const { userId } = req.body;
-    try {
-        const user = await User.findById(userId).select('-password -__v -reviewsVoted -updatedAt -_id');
-        if (!user) {
-            return res.status(404).json({ message: "User not found!" });
-        }
-        const playerData = await PlayerData.findOne({ username: user.username }).select('-__v -username -createdAt');
-        res.status(200).json({...user, ...playerData}); // _id is player data id
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Internal server error!" });
-    }
-})
-
 router.post('/users/create', async (req, res) => {
     const { username, email, password } = req.body;
 

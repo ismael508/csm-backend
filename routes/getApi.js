@@ -1,5 +1,7 @@
 const express = require('express');
 const Review = require('../models/ReviewModel');
+const User = require('../models/UserModel');
+const PlayerData = require('../models/PlayerDataModel');
 const PatchLog = require('../models/PatchLogModel');
 const ReleaseNote = require('../models/ReleaseNoteModel');
 const { verifyToken, generateAccessToken, compareVersions } = require('../utils');
@@ -46,6 +48,21 @@ router.get('/verify-tokens', async (req, res) => {
         res.status(500).json({ "message": "Internal Server Error" });
     }
 });
+
+router.get('/users/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const user = await User.findById(userId).select('-password -__v -reviewsVoted -updatedAt -_id');
+        if (!user) {
+            return res.status(404).json({ message: "User not found!" });
+        }
+        const playerData = await PlayerData.findOne({ username: user.username }).select('-__v -username -createdAt');
+        res.status(200).json({...user, ...playerData}); // _id is player data id
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Internal server error!" });
+    }
+})
 
 router.get('/reviews', async (req, res) => {
     try {
