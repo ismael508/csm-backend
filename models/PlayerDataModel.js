@@ -10,7 +10,7 @@ const playerDataSchema = new Schema({
     balance: Number,
     gamesPlayed: Number,
     jumps: Number,
-    scores: Number,
+    scores: Array,
     coloursOwned: Array,
     designsOwned: Array,
     customSkinsOwned: Array,
