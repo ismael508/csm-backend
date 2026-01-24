@@ -64,6 +64,11 @@ router.get('/users/:userId', async (req, res) => {
     }
 })
 
+router.get('/oauth2callback', (req, res) => {
+    console.log(req.query.code);
+    res.status(200).send('Code received!');
+})
+
 router.get('/reviews', async (req, res) => {
     try {
         const reviews = await Review.find().populate('user', 'username pfp');
